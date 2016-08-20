@@ -1,0 +1,7 @@
+RTP_DIRECTORY=jar:file:./RPG2k_Emu_J.jar!/RTP/
+GAME_DIRECTORY=jar:file:./RPG2k_Emu_J.jar!/Game/
+MAGNIFICATION=2
+ALWAYS_ON_TOP=false
+HIDE_TITLE=false
+TEST_PLAYING=false
+FULL_SCREEN=false

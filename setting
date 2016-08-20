@@ -1,0 +1,9 @@
+RTP  = "RTP" ;
+BASE = "Data";
+GAME = "Test";
+
+HIDE_TITLE    = false;
+TEST_PLAY     = true ;
+MAGNIFY       = false;
+ALWAYS_ON_TOP = true ;
+FULL_SCREEN   = false;

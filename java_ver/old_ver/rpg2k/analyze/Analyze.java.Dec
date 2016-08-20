@@ -1,0 +1,278 @@
+package rpg2k.analyze;
+
+import java.io.*;
+import java.util.*;
+import rpg2k.*;
+import static rpg2k.analyze.Format.*;
+
+public class Analyze implements Field
+{
+	private static int LINE = 16;
+	private static int STREAM_SIZE;
+	private static boolean CALL_FROM_ROOT = false;
+	private static boolean CALL_FROM_2D = false;
+	private static boolean IS_LMT = false;
+	
+	private static int skipHeader(InputStream input) throws IOException {
+		int length = Structure.ber2int(input);
+		input.skip(length);
+		return length+1;
+	}
+	private static String readString(final byte[] data) throws Exception {
+		String str = Structure.readString(data);
+		if(str.length() < 2) throw new Exception();
+		for(int i = 0, i_length = str.length(); i < i_length; i++)
+			if(Character.isISOControl(str.charAt(i))
+				|| !(Character.isDefined((str.charAt(i))))
+			)
+				throw new Exception();
+		return str;
+	}
+	private static int ber2int(final byte[] source) throws Exception {
+		int data = 0, i = 0, buff = 0;
+		ByteArrayInputStream reader = new ByteArrayInputStream(source);
+		while(true) {
+			buff = reader.read();
+			if(buff > 0x80) {
+				data = (data<<7) | (buff-0x80);
+			} else {
+				data = (data<<7) | buff;
+				break;
+			}
+			i++;
+		}
+		if((data>VARIABLE_MAXIMUM) || (data<VARIABLE_MINIMUM))
+			throw new Exception();
+		if((i+1)==source.length) return data;
+		throw new Exception();
+	}
+	private static byte[][] get1DArray(ByteArrayInputStream input)
+		throws IOException
+	{
+		Vector<byte[]> ret = new Vector<byte[]>(100, 10);
+		int arrayNum = 0, size = 0;
+		byte[] array = null;
+		while(true) {
+			arrayNum = Structure.ber2int(input);
+			if((arrayNum==-1) || (arrayNum==0)) break;
+			size = Structure.ber2int(input);
+			if(
+				(size>STREAM_SIZE) || (size<0) || (size>input.available())
+			) throw new IOException();
+			array = new byte[size];
+			input.read(array);
+			setSize(ret, arrayNum);
+			ret.set(arrayNum, array);
+		}
+		if(ret.isEmpty()) throw new IOException();
+		if(CALL_FROM_2D || (arrayNum==-1) || (input.read()==-1))
+			return (byte[][])ret.toArray(new byte[0][]);
+		else throw new IOException();
+	}
+	private static byte[][][] get2DArray(ByteArrayInputStream input)
+		throws IOException
+	{
+		int size0 = Structure.ber2int(input), arrayNum0 = 0;
+		CALL_FROM_2D = true;
+		if(size0 > STREAM_SIZE) throw new IOException();
+		Vector<byte[][]> ret0 = new Vector<byte[][]>(size0, 10);
+		for(int i = 0; i < size0; i++) {
+			arrayNum0 = Structure.ber2int(input);
+			setSize(ret0, arrayNum0);
+			ret0.set(arrayNum0, get1DArray(input));
+		}
+		CALL_FROM_2D = false;
+		if((arrayNum0==-1) || (input.read()==-1)
+			|| (CALL_FROM_ROOT && IS_LMT)
+		) return (byte[][][])ret0.toArray(new byte[0][][]);
+		else throw new IOException();
+	}
+	private static void setSize(Vector list, int size) throws IOException {
+		if((size>STREAM_SIZE) || (size<0)) throw new IOException();
+		for(int i = list.size(), i_len = (size+1); i < i_len; i++)
+			list.add(null);
+	}
+	private static int loopNum = 0;
+	public static Object analyzeStart(String file) throws IOException {
+		byte src[] = null;
+		int fileSize = (int) new File(file).length();
+		FileInputStream reader = new FileInputStream(file);
+		BufferedInputStream breader =
+			new BufferedInputStream(reader);
+		int headerSize = skipHeader(breader);
+		src = new byte[fileSize-headerSize];
+		if(breader.read(src)==-1) throw new IOException();
+		breader.close();
+		STREAM_SIZE = fileSize;
+		IS_LMT = "lmt"
+			.equalsIgnoreCase(file.substring(file.lastIndexOf(".") + 1));
+	 	try {
+			CALL_FROM_ROOT = true;
+			byte[][] v = get1DArray(new ByteArrayInputStream(src));
+			CALL_FROM_ROOT = false;
+			Object[] ret = new Object[v.length];
+			for(int i = 0; i < v.length; i++) {
+				if(v[i] == null) continue;
+				ret[i] = analyze(v[i]);
+			}
+			return (Object)ret;
+		} catch(Exception e) {}
+		try {
+			CALL_FROM_ROOT = true;
+			byte[][][] v = get2DArray(new ByteArrayInputStream(src));
+			CALL_FROM_ROOT = false;
+			Object[][] ret = new Object[v.length][];
+			int i = 0, j = 0;
+			for(i = 0; i < v.length; i++) {
+				if(v[i] == null) continue;
+				ret[i] = new Object[v[i].length];
+				for(j = 0; j < v[i].length; j++) {
+					if(v[i][j] == null) continue;
+					ret[i][j] = analyze(v[i][j]);
+				}
+			}
+			return (Object)ret;
+		} catch(Exception e) {}
+		return null;
+	}
+	public static Object analyze(final byte[] data) {
+		try {
+			return readString(data);
+		} catch(Exception e) {}
+		try {
+			return ber2int(data);
+		} catch(Exception e) {}
+		try {
+			byte[][] v = get1DArray(new ByteArrayInputStream(data));
+			Object[] ret = new Object[v.length];
+			for(int i = 0; i < v.length; i++) {
+				if(v[i] == null) continue;
+				ret[i] = analyze(v[i]);
+			}
+			return ret;
+		} catch(Exception e) {}
+		try {
+			byte[][][] v = get2DArray(new ByteArrayInputStream(data));
+			Object[][] ret = new Object[v.length][];
+			int i = 0, j = 0;
+			for(i = 0; i < v.length; i++) {
+				if(v[i] == null) continue;
+				ret[i] = new Object[v[i].length];
+				for(j = 0; j < v[i].length; j++) {
+					if(v[i][j] == null) continue;
+					ret[i][j] = analyze(v[i][j]);
+				}
+			}
+			return ret;
+		} catch(Exception e) {}
+		return new ByteArrayInputStream(data);
+	}
+	private static void tab(String s) {
+		StringBuffer buff = new StringBuffer();
+		for(int i = loopNum; i > 0; i--) buff.append("\t");
+		System.out.print(buff.append(s).toString());
+	}
+	public static void print(final byte[] data) {
+		print(new ByteArrayInputStream(data));
+	}
+	public static void print(String file) throws IOException {
+		print(analyzeStart(file));
+	}
+	private static void print(Object input) {
+		if(input instanceof Integer) {
+			System.out.println("Ber "+((Integer)input).toString());
+		} else if(input instanceof String) {
+			System.out.println("String "+(String)input);
+		} else if(input instanceof Object[][]) {
+			Object[][] src = (Object[][]) input;
+			System.out.print("2Darray\n");
+			int i = 0, j = 0;
+			for(i = 0; i < src.length; i++) {
+				if(src[i]==null) continue;
+//				tab("0x"+hex0(i, 4)+":\n");
+				tab(dec0(i, 4)+":\n");
+				loopNum++;
+				for(j = 0; j < src[i].length; j++) {
+					if(src[i][j]==null) continue;
+//					tab("0x"+hex0(j, 4)+": ");
+					tab(dec0(i, 4)+": ");
+					loopNum++;
+					print(src[i][j]);
+					loopNum--;
+				}
+				loopNum--;
+			}
+			statistics(src);
+		} else if(input instanceof Object[]) {
+			Object[] src = (Object[]) input;
+			System.out.print("1Darray\n");
+			for(int i = 0; i < src.length; i++) {
+				if(src[i]==null) continue;
+//				tab("0x"+hex0(i, 4)+": ");
+				tab(dec0(i, 4)+": ");
+				loopNum++;
+				print(src[i]);
+				loopNum--;
+			}
+		} else if(input instanceof ByteArrayInputStream) {
+			try {
+				ByteArrayInputStream src = (ByteArrayInputStream)input;
+				if(src.available()==0) {
+					System.out.print("Null\n");
+					return;
+				}
+				System.out.print("Binary\n");
+				int newLine = LINE, buff = 0;
+				int loopTime = src.available() / newLine;
+				if((src.available()%newLine)!=0) loopTime++;
+				int i = 0, j = 0;
+				for(i = 0; i < loopTime; i++) {
+					String buff0 = new String();
+					for(j = 0; j < newLine; j++) {
+						buff = src.read();
+						if(buff == -1) break;
+						buff0 += (hex0(buff, 2)+" ");
+					}
+					tab(buff0+"\n");
+				}
+			} catch(Exception e) {}
+		}
+	}
+	private static void statistics(Object[][] in) {
+		int i = 0, j = 0, size = 0;
+		int[][] ret = new int[5][200];
+		for(i = 0; i < in.length; i++) {
+			if(in[i]==null) continue;
+			for(j = 0; j < in[i].length; j++) {
+				if(size <= j) size = j+1;
+				if(in[i][j] instanceof Integer) ret[0][j]++;
+				else if(in[i][j] instanceof String) ret[1][j]++;
+				else if(in[i][j] instanceof Object[][]) ret[2][j]++;
+				else if(in[i][j] instanceof Object[]) ret[3][j]++;
+				else if(in[i][j] instanceof ByteArrayInputStream)
+					ret[4][j]++;
+			}
+		}
+		tab("Statistics:\n");
+		loopNum++;
+		for(i = 0; i < size; i++) {
+			int c = 0;
+			for(j = 0; j < 5; j++) if(ret[j][i]==0) c++;
+			if(c==5) continue;
+//			tab("0x"+hex0(i, 4)+":\n");
+			tab(dec0(i, 4)+":\n");
+			loopNum++;
+			for(j = 0; j < 5; j++)
+				if(ret[j][i] != 0) tab(TYPE[j]+decSpace(ret[j][i], 8)+"\n");
+			loopNum--;
+		}
+		loopNum--;
+	}
+	private static final String TYPE[] = {
+		"Ber     :",
+		"String  :",
+		"2Darray :",
+		"1Darray :",
+		"Binary  :",
+	};
+}
